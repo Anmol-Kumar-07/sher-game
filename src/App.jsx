@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 
 import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, deleteDoc } from 'firebase/firestore';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 
-// Initialize Firebase (Make sure to paste your actual Firebase keys here)
+// Initialize Firebase (Paste your actual Firebase config here before deploying)
 const firebaseConfig = {
   apiKey: "AIzaSyChVxjvESWmZnXCb9TsQWPp6CJfxy-jkJQ",
   authDomain: "sher-game.firebaseapp.com",
@@ -19,6 +19,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = 'my-custom-sher-game';
+
 const points = [
   [10, 10], [50, 10], [90, 10],
   [25, 25], [50, 25], [75, 25],
@@ -137,18 +138,14 @@ export default function SherGame() {
   const [guideMoves, setGuideMoves] = useState([]);
   const [shersFormed, setShersFormed] = useState([]);
 
-  const historyEndRef = useRef(null);
+  // FIX: Replaced historyEndRef with historyContainerRef for better mobile scrolling
+  const historyContainerRef = useRef(null);
   const theme = THEMES[themeId];
 
   useEffect(() => {
-    if (!auth) return;
     const initAuth = async () => {
       try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
+        await signInAnonymously(auth);
       } catch (e) {
         console.error("Auth error", e);
       }
@@ -160,7 +157,7 @@ export default function SherGame() {
 
   // Listen to Firestore Room Document if online
   useEffect(() => {
-    if (!user || !db || !roomCode || !gameMode.startsWith('online')) return;
+    if (!user || !roomCode || !gameMode.startsWith('online')) return;
     
     const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomCode);
     const unsubscribe = onSnapshot(roomDocRef, (docSnap) => {
@@ -176,20 +173,18 @@ export default function SherGame() {
         setRoomStatus(data.status || 'waiting');
         updateShers(data.board || Array(24).fill(null));
       } else {
-        // Room was deleted or closed
         setRoomError("Room was closed by the host.");
         setAppState('menu');
       }
-    }, (err) => {
-      console.error("Snapshot error:", err);
     });
 
     return () => unsubscribe();
   }, [user, roomCode, gameMode]);
 
+  // FIX: Scroll only the container, preventing the whole page from jumping on mobile
   useEffect(() => {
-    if (historyEndRef.current) {
-      historyEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (historyContainerRef.current) {
+      historyContainerRef.current.scrollTop = historyContainerRef.current.scrollHeight;
     }
   }, [history]);
 
@@ -274,7 +269,7 @@ export default function SherGame() {
   };
 
   const pushGameState = async (updates) => {
-    if (gameMode.startsWith('online') && roomCode && db && user) {
+    if (gameMode.startsWith('online') && roomCode) {
       try {
         const roomDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomCode);
         await updateDoc(roomDocRef, updates);
@@ -282,7 +277,6 @@ export default function SherGame() {
         console.error("Failed to sync state:", err);
       }
     } else {
-      // Local state update
       if (updates.board !== undefined) setBoard(updates.board);
       if (updates.turn !== undefined) setTurn(updates.turn);
       if (updates.phase !== undefined) setPhase(updates.phase);
@@ -301,9 +295,8 @@ export default function SherGame() {
   };
 
   const handleClick = (index) => {
-    // Prevent interaction if game is over or online conditions aren't met
     if (winner) return;
-    if (gameMode === 'local_ai' && turn === 2 && !removeMode && phase !== 'placing') return; // AI turn
+    if (gameMode === 'local_ai' && turn === 2 && !removeMode && phase !== 'placing') return; 
     if (gameMode.startsWith('online')) {
       if (roomStatus !== 'playing') return;
       if (gameMode === 'online_host' && turn !== 1) return;
@@ -332,7 +325,7 @@ export default function SherGame() {
 
       if (isSher(turn, index, updatedBoard)) {
         newRemoveMode = true;
-        newTurn = turn; // Keep turn
+        newTurn = turn;
       } else if (newStock[1] === 0 && newStock[2] === 0) {
         newPhase = 'moving';
       }
@@ -348,7 +341,6 @@ export default function SherGame() {
       return;
     }
 
-    // Moving Phase
     if (selected === null || updatedBoard[index] === turn) {
       if (updatedBoard[index] === turn) {
         setSelected(index);
@@ -369,11 +361,11 @@ export default function SherGame() {
 
       if (isSher(turn, index, updatedBoard)) {
         newRemoveMode = true;
-        newTurn = turn; // Keep turn
+        newTurn = turn; 
       } else {
         const opponent = turn === 1 ? 2 : 1;
         if (!canMove(opponent, updatedBoard)) {
-          newWinner = turn; // Opponent is trapped
+          newWinner = turn; 
           playSound('win');
         }
       }
@@ -396,7 +388,6 @@ export default function SherGame() {
     if (board[index] !== opponent) { playSound('error'); return; }
     if (isSher(opponent, index, board) && !areAllOpponentPiecesInSher(opponent, board)) {
       playSound('error');
-      // Update local history only for errors to avoid spamming db
       setHistory(prev => [...prev, { player: turn, text: `Attempted to capture protected piece` }]);
       return;
     }
@@ -461,8 +452,8 @@ export default function SherGame() {
         if (difficulty === 'easy') {
           choice = empty[Math.floor(Math.random() * empty.length)];
         } else {
-          choice = empty.find(idx => testSher(2, board, idx)); // Try win
-          if (choice === undefined) choice = empty.find(idx => testSher(1, board, idx)); // Block
+          choice = empty.find(idx => testSher(2, board, idx)); 
+          if (choice === undefined) choice = empty.find(idx => testSher(1, board, idx)); 
           
           if (choice === undefined && difficulty === 'hard') {
             const strategic = empty.filter(idx => [4, 10, 13, 19].includes(idx));
@@ -472,7 +463,6 @@ export default function SherGame() {
         }
         handleClick(choice);
       } else {
-        // AI Moving Phase
         let possibleMoves = [];
         for (let i = 0; i < 24; i++) {
           if (board[i] === 2) {
@@ -489,13 +479,12 @@ export default function SherGame() {
         if (difficulty === 'easy') {
           chosenMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
         } else {
-          chosenMove = possibleMoves.find(m => testSher(2, board, m.to, m.from)); // Win
+          chosenMove = possibleMoves.find(m => testSher(2, board, m.to, m.from)); 
           if (!chosenMove) {
             chosenMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
           }
         }
 
-        // Execute AI Move manually to push state properly
         playSound('place');
         const updatedBoard = [...board];
         updatedBoard[chosenMove.to] = 2;
@@ -528,7 +517,7 @@ export default function SherGame() {
   }, [turn, board, removeMode, phase, winner, gameMode, difficulty, appState]);
 
   const createRoom = async () => {
-    if (!user || !db) return;
+    if (!user) return;
     const code = Math.random().toString(36).substring(2, 7).toUpperCase();
     
     const roomData = {
@@ -558,7 +547,7 @@ export default function SherGame() {
   };
 
   const joinRoom = async () => {
-    if (!user || !db || !joinInput.trim()) return;
+    if (!user || !joinInput.trim()) return;
     const code = joinInput.trim().toUpperCase();
     
     try {
@@ -615,7 +604,7 @@ export default function SherGame() {
   };
 
   const leaveRoom = async () => {
-    if (gameMode.startsWith('online') && roomCode && db && gameMode === 'online_host') {
+    if (gameMode.startsWith('online') && roomCode && gameMode === 'online_host') {
       try {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'rooms', roomCode));
       } catch (e) { console.error(e); }
@@ -631,8 +620,7 @@ export default function SherGame() {
           <h1 style={{ fontSize: '3.5rem', textAlign: 'center', margin: '0 0 10px 0', fontWeight: '900', letterSpacing: '4px', textTransform: 'uppercase', textShadow: `0 0 20px ${THEMES[themeId].lineColor}` }}>Sher</h1>
           <p style={{ textAlign: 'center', marginBottom: '30px', opacity: 0.8 }}>The Ultimate Strategy Game</p>
           
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '30px' }}>
-            {/* Local Play */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '30px' }}>
             <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '16px' }}>
               <h3 style={{ margin: '0 0 15px 0', borderBottom: `1px solid ${THEMES[themeId].lineColor}`, paddingBottom: '8px' }}>Local Play</h3>
               <button onClick={() => startLocalGame('local_ai')} style={{ width: '100%', padding: '12px', marginBottom: '10px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>1 Player (vs AI)</button>
@@ -646,14 +634,13 @@ export default function SherGame() {
               <button onClick={() => startLocalGame('local_pvp')} style={{ width: '100%', padding: '12px', background: 'transparent', color: THEMES[themeId].textColor, border: `2px solid #3b82f6`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>2 Players (Local)</button>
             </div>
 
-            {/* Online Play */}
             <div style={{ background: 'rgba(0,0,0,0.2)', padding: '20px', borderRadius: '16px' }}>
               <h3 style={{ margin: '0 0 15px 0', borderBottom: `1px solid ${THEMES[themeId].lineColor}`, paddingBottom: '8px' }}>Play Online</h3>
               {user ? (
                 <>
                   <button onClick={createRoom} style={{ width: '100%', padding: '12px', marginBottom: '15px', background: '#8b5cf6', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Create Team Room</button>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <input type="text" placeholder="Enter Team Code" value={joinInput} onChange={e => setJoinInput(e.target.value)} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: 'rgba(255,255,255,0.1)', color: 'white', outline: 'none', textTransform: 'uppercase' }} maxLength={5} />
+                    <input type="text" placeholder="Enter Team Code" value={joinInput} onChange={e => setJoinInput(e.target.value)} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: 'rgba(255,255,255,0.1)', color: 'white', outline: 'none', textTransform: 'uppercase', minWidth: '0' }} maxLength={5} />
                     <button onClick={joinRoom} style={{ padding: '10px 15px', background: '#10b981', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>Join</button>
                   </div>
                   {roomError && <div style={{ color: '#ef4444', fontSize: '0.8rem', marginTop: '8px', textAlign: 'center' }}>{roomError}</div>}
@@ -682,10 +669,9 @@ export default function SherGame() {
   return (
     <div style={{ minHeight: '100vh', background: theme.bg, color: theme.textColor, fontFamily: 'system-ui, sans-serif', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       
-      {/* Top Bar */}
       <div style={{ width: '100%', maxWidth: '1200px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
         <button onClick={leaveRoom} style={{ padding: '10px 20px', background: 'rgba(0,0,0,0.3)', color: theme.textColor, border: `1px solid ${theme.lineColor}`, borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>← Leave Match</button>
-        <h2 style={{ margin: 0, textTransform: 'uppercase', letterSpacing: '2px', textAlign: 'center', flex: 1 }}>{theme.name}</h2>
+        <h2 style={{ margin: 0, textTransform: 'uppercase', letterSpacing: '2px', textAlign: 'center', flex: 1, minWidth: '150px' }}>{theme.name}</h2>
         <div style={{ display: 'flex', gap: '10px' }}>
           {gameMode.startsWith('online') && (
             <div style={{ padding: '10px 20px', background: 'rgba(0,0,0,0.3)', border: `1px solid ${theme.lineColor}`, borderRadius: '8px', fontWeight: 'bold' }}>
@@ -700,10 +686,8 @@ export default function SherGame() {
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '30px', justifyContent: 'center', width: '100%', maxWidth: '1200px' }}>
         
-        {/* Main Board Area */}
-        <div style={{ flex: '1 1 500px', maxWidth: '700px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+        <div style={{ flex: '1 1 300px', maxWidth: '700px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
           
-          {/* Status Bar */}
           <div style={{ background: theme.panelBg, padding: '15px', borderRadius: '12px', textAlign: 'center', fontSize: '1.2rem', fontWeight: 'bold', border: `2px solid ${removeMode ? '#ef4444' : theme.lineColor}`, transition: 'all 0.3s' }}>
             {gameMode.startsWith('online') && roomStatus === 'waiting' ? (
               <span style={{ color: theme.p1Color, animation: 'pulse 2s infinite' }}>Waiting for opponent to join... (Code: {roomCode})</span>
@@ -716,10 +700,8 @@ export default function SherGame() {
             )}
           </div>
 
-          {/* SVG Responsive Board */}
           <div style={{ position: 'relative', width: '100%', aspectRatio: '1/1', background: theme.panelBg, borderRadius: '16px', padding: '4%', boxSizing: 'border-box', boxShadow: `0 10px 40px rgba(0,0,0,0.5)`, border: `1px solid ${theme.lineColor}` }}>
             
-            {/* Online Waiting Overlay */}
             {gameMode.startsWith('online') && roomStatus === 'waiting' && (
               <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.6)', zIndex: 20, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', borderRadius: '16px', backdropFilter: 'blur(4px)' }}>
                 <h3 style={{ fontSize: '2rem', marginBottom: '10px' }}>Waiting for Player 2</h3>
@@ -748,13 +730,11 @@ export default function SherGame() {
               })}
             </svg>
 
-            {/* Nodes / Pieces */}
             {points.map((pt, index) => {
               const piece = board[index];
               const isSelected = selected === index;
               const isGuide = guideMoves.includes(index);
               
-              // Only allow target selection if it's currently our turn to remove
               let isMyTurnToRemove = false;
               if (gameMode === 'local_ai' || gameMode === 'local_pvp') isMyTurnToRemove = removeMode;
               else if (gameMode === 'online_host') isMyTurnToRemove = removeMode && turn === 1;
@@ -774,7 +754,7 @@ export default function SherGame() {
               if (isGuide) { bg = 'rgba(16, 185, 129, 0.5)'; border = '2px solid #10b981'; size = '5%'; }
 
               if (isTarget) {
-                if (isProtected) { opacity = 0.4; cursor = 'not-allowed'; }
+                if (isProtected) { cursor = 'not-allowed'; }
                 else { border = '4px solid #ef4444'; cursor = 'crosshair'; }
               }
 
@@ -791,7 +771,6 @@ export default function SherGame() {
           </div>
         </div>
 
-        {/* Side Panel (Stats & History) */}
         <div style={{ flex: '1 1 300px', maxWidth: '400px', display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
           <div style={{ display: 'flex', gap: '10px' }}>
@@ -807,23 +786,21 @@ export default function SherGame() {
             </div>
           </div>
 
-          <div style={{ flex: 1, background: theme.panelBg, padding: '15px', borderRadius: '12px', display: 'flex', flexDirection: 'column', minHeight: '300px', maxHeight: '500px' }}>
+          <div style={{ flex: 1, background: theme.panelBg, padding: '15px', borderRadius: '12px', display: 'flex', flexDirection: 'column', minHeight: '150px', maxHeight: '400px' }}>
             <h3 style={{ margin: '0 0 10px 0', fontSize: '1.1rem', borderBottom: `1px solid ${theme.lineColor}`, paddingBottom: '10px' }}>Match Log</h3>
-            <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.9rem', paddingRight: '5px' }}>
+            <div ref={historyContainerRef} style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.9rem', paddingRight: '5px' }}>
               {history.length === 0 && <div style={{ opacity: 0.5, fontStyle: 'italic' }}>Match started. Awaiting moves...</div>}
               {history.map((log, i) => (
                 <div key={i} style={{ padding: '8px 12px', background: 'rgba(0,0,0,0.3)', borderRadius: '8px', borderLeft: `4px solid ${log.player === 1 ? theme.p1Color : theme.p2Color}` }}>
                   {log.text}
                 </div>
               ))}
-              <div ref={historyEndRef} />
             </div>
           </div>
         </div>
 
       </div>
 
-      {/* Victory Overlay */}
       {winner && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.85)', zIndex: 100, display: 'flex', justifyContent: 'center', alignItems: 'center', backdropFilter: 'blur(8px)' }}>
           <div style={{ background: theme.panelBg, padding: '50px', borderRadius: '24px', textAlign: 'center', maxWidth: '450px', width: '90%', border: `2px solid ${winner === 1 ? theme.p1Color : theme.p2Color}`, boxShadow: `0 0 80px ${winner === 1 ? theme.p1Color : theme.p2Color}` }}>
@@ -844,7 +821,6 @@ export default function SherGame() {
         </div>
       )}
 
-      {/* Global Animations */}
       <style>{`
         @keyframes pulse {
           0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }

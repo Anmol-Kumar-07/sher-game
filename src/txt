@@ -1,0 +1,9 @@
+const firebaseConfig = {
+  apiKey: "AIzaSyChVxjvESWmZnXCb9TsQWPp6CJfxy-jkJQ",
+  authDomain: "sher-game.firebaseapp.com",
+  projectId: "sher-game",
+  storageBucket: "sher-game.firebasestorage.app",
+  messagingSenderId: "300960966076",
+  appId: "1:300960966076:web:f55c7fcdcfaafcdeb237b9",
+  measurementId: "G-069WLY44M0"
+};
