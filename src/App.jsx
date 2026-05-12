@@ -461,7 +461,35 @@ export default function SherGame() {
           }
           if (choice === undefined) choice = empty[Math.floor(Math.random() * empty.length)];
         }
-        handleClick(choice);
+        
+        // AI MANUAL PLACING EXECUTION FIX
+        playSound('place');
+        const updatedBoard = [...board];
+        updatedBoard[choice] = 2;
+        
+        const newStock = { ...stock, 2: Math.max(0, stock[2] - 1) };
+        const newHistory = [...history, { player: 2, text: `AI placed at ${nodeNames[choice]}` }];
+        
+        let newRemoveMode = false;
+        let newPhase = phase;
+        let newTurn = 1;
+
+        if (isSher(2, choice, updatedBoard)) {
+          newRemoveMode = true;
+          newTurn = 2;
+        } else if (stock[1] <= 0 && newStock[2] <= 0) {
+          newPhase = 'moving';
+        }
+
+        pushGameState({
+          board: updatedBoard,
+          stock: newStock,
+          history: newHistory,
+          removeMode: newRemoveMode,
+          phase: newPhase,
+          turn: newTurn
+        });
+
       } else {
         let possibleMoves = [];
         for (let i = 0; i < 24; i++) {
